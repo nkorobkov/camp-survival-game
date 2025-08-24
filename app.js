@@ -32,8 +32,6 @@ function resizeCanvas() {
 
     // Reset transform and scale so drawing uses CSS pixel coordinates
     ctx.setTransform(devicePixelRatioScale, 0, 0, devicePixelRatioScale, 0, 0);
-
-    draw(20, 20);
 }
 let x = window.innerWidth / 2
 let y = window.innerHeight / 2
@@ -236,9 +234,10 @@ function update_text() {
     ctx.textAlign = "start";
     ctx.textBaseline = "top";
 
-    if (killed > 0) {
+    if (killed > 0 || gameover) {
         ctx.fillText('killed: ' + killed, 20, 20);
-        ctx.fillText('kills per bullet: ' + Math.floor(killed * 1000 / ammo) / 1000, 20, 40);
+        const apk = ammo !== 0 ? Math.floor(killed * 1000 / ammo) / 1000 : 0
+        ctx.fillText('kills per bullet: ' + apk, 20, 40);
     }
 
     // once every spawn_timeout we check if random number<max_temp is > temp and spawn if it is so. 
