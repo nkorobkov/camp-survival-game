@@ -16,8 +16,54 @@ const MAX_TEMPERATURE = 100
 const SHOOT_TIMEOUT = 50
 const SPAWN_DENSITY_INCREASE_TIMEOUT = 5000
 
+// Spawnable objects system
+const SPAWNABLE_TYPES = {
+    HEALTH_PACK: {
+        id: 'health_pack',
+        name: 'Health Pack',
+        color: '#DA3232',
+        size: 15,
+        spawnChance: 0.3, // 30% chance when spawning
+        spawnInterval: 8000, // Spawn every 8 seconds
+        lastSpawn: 0,
+        maxOnField: 2
+    },
+    RAPID_FIRE: {
+        id: 'rapid_fire',
+        name: 'rapid fire',
+        color: '#CD3BCD',
+        size: 15,
+        spawnChance: 0.2, // 20% chance when spawning
+        spawnInterval: 12000, // Spawn every 12 secondss
+        lastSpawn: 0,
+        maxOnField: 1,
+        duration: 10000 // 10 seconds duration
+    },
+    SHOTGUN: {
+        id: 'shotgun',
+        name: 'shotgun',
+        color: '#57BA50',
+        size: 15,
+        spawnChance: 0.15, // 15% chance when spawning
+        spawnInterval: 15000, // Spawn every 15 seconds
+        lastSpawn: 0,
+        maxOnField: 1,
+        duration: 8000 // 8 seconds duration
+    },
+    INSTANT_KILL: {
+        id: 'instant_kill',
+        name: 'Bomb',
+        color: "#313939",
+        size: 15,
+        spawnChance: 0.1, // 10% chance when spawning
+        spawnInterval: 20000, // Spawn every 20 seconds
+        lastSpawn: 0,
+        maxOnField: 1
+    }
+}
+
 // Health system constants
-const MAX_HEALTH = 1
+const MAX_HEALTH = 5
 const INVINCIBILITY_DURATION = 1000 // 1 second of invincibility after taking damage
 const SCREEN_FLASH_DURATION = 200 // 200ms red flash
 
@@ -54,6 +100,19 @@ let playerHealth = MAX_HEALTH
 let lastDamageTime = 0
 let screenFlashStart = 0
 let isInvincible = false
+
+// Spawnable objects and power-ups
+let spawnedObjects = []
+let playerPowerUps = {
+    rapidFire: false,
+    shotgun: false,
+    rapidFireEndTime: 0,
+    shotgunEndTime: 0
+}
+
+// Weapon system
+let currentWeapon = 'normal'
+let shootCooldown = SHOOT_TIMEOUT
 
 temperature = 10
 enemies = []
@@ -118,24 +177,33 @@ function updatePlayerPosition() {
 }
 
 function updateBullets() {
-
     const bx = x + P_X / 2
     const by = y + P_Y / 2
 
     const speed_x = (keyPresses.fire_right - keyPresses.fire_left) * BULLET_SPEED
     const speed_y = (keyPresses.fire_down - keyPresses.fire_up) * BULLET_SPEED
 
-
-    // This results it bullets that don't fly but stay in place if you press left and right
-    // But it is kinda fun to play with, so i'm not fixing it.
+    // Check if we can shoot based on current weapon and cooldown
     if (
         (keyPresses.fire_up || keyPresses.fire_down || keyPresses.fire_left || keyPresses.fire_right) &&
-        lastShotTime + SHOOT_TIMEOUT < Date.now()
+        lastShotTime + shootCooldown < Date.now()
     ) {
-        bullets.push([bx, by, speed_x, speed_y])
-        lastShotTime = Date.now()
-        ammo = ammo + 1
-        intro = false
+        if (currentWeapon === 'shotgun') {
+            // Shotgun fires 3 bullets in a spread
+            const spread = 0.3;
+            for (let i = -1; i <= 1; i++) {
+                const spreadSpeedX = speed_x + (i * spread * BULLET_SPEED);
+                const spreadSpeedY = speed_y + (i * spread * BULLET_SPEED);
+                bullets.push([bx, by, spreadSpeedX, spreadSpeedY]);
+            }
+        } else {
+            // Normal or rapid fire - single bullet
+            bullets.push([bx, by, speed_x, speed_y]);
+        }
+        
+        lastShotTime = Date.now();
+        ammo = ammo + 1;
+        intro = false;
     }
 }
 
@@ -278,6 +346,20 @@ function draw_restart_button() {
     ctx.stroke();
 }
 
+function draw_spawned_objects() {
+    for (const obj of spawnedObjects) {
+        if (obj.collected) continue;
+        
+        ctx.fillStyle = obj.color;
+        ctx.fillRect(obj.x, obj.y, obj.size, obj.size);
+        
+        // Add a subtle glow effect
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(obj.x - 1, obj.y - 1, obj.size + 2, obj.size + 2);
+    }
+}
+
 function take_damage() {
     if (isInvincible) return;
     
@@ -337,6 +419,136 @@ function update_invincibility() {
     }
 }
 
+function spawn_objects() {
+    const currentTime = Date.now();
+    
+    for (const [typeKey, typeConfig] of Object.entries(SPAWNABLE_TYPES)) {
+        // Check if enough time has passed and we can spawn this type
+        if (currentTime - typeConfig.lastSpawn >= typeConfig.spawnInterval) {
+            // Check if we haven't reached max count for this type
+            const currentCount = spawnedObjects.filter(obj => obj.type === typeConfig.id).length;
+            if (currentCount < typeConfig.maxOnField) {
+                // Random chance to spawn
+                if (Math.random() < typeConfig.spawnChance) {
+                    const obj = create_spawnable_object(typeConfig);
+                    spawnedObjects.push(obj);
+                    typeConfig.lastSpawn = currentTime;
+                }
+            }
+        }
+    }
+    
+    setTimeout(spawn_objects, 1000); // Check every second
+}
+
+function create_spawnable_object(typeConfig) {
+    // Spawn at random position, avoiding edges
+    const margin = 50;
+    const x = margin + Math.random() * (window.innerWidth - 2 * margin);
+    const y = margin + Math.random() * (window.innerHeight - 2 * margin);
+    
+    return {
+        type: typeConfig.id,
+        name: typeConfig.name,
+        color: typeConfig.color,
+        size: typeConfig.size,
+        x: x,
+        y: y,
+        duration: typeConfig.duration || 0,
+        collected: false
+    };
+}
+
+function update_power_ups() {
+    const currentTime = Date.now();
+    
+    // Check if power-ups have expired
+    if (playerPowerUps.rapidFire && currentTime > playerPowerUps.rapidFireEndTime) {
+        playerPowerUps.rapidFire = false;
+        currentWeapon = 'normal';
+        shootCooldown = SHOOT_TIMEOUT;
+    }
+    
+    if (playerPowerUps.shotgun && currentTime > playerPowerUps.shotgunEndTime) {
+        playerPowerUps.shotgun = false;
+        currentWeapon = 'normal';
+    }
+}
+
+function check_object_collisions() {
+    for (let i = spawnedObjects.length - 1; i >= 0; i--) {
+        const obj = spawnedObjects[i];
+        const objLeft = obj.x;
+        const objRight = obj.x + obj.size;
+        const objTop = obj.y;
+        const objBottom = obj.y + obj.size;
+        const playerLeft = x;
+        const playerRight = x + P_X;
+        const playerTop = y;
+        const playerBottom = y + P_Y;
+        
+        // Check if player collected the object
+        if (!obj.collected) {   
+            if (playerRight > objLeft && playerLeft < objRight && 
+                playerBottom > objTop && playerTop < objBottom) {
+                collect_object(obj);
+                spawnedObjects.splice(i, 1);
+                continue;
+            }
+        }
+        
+        // Check if bullet hit the object
+        for (let j = bullets.length - 1; j >= 0; j--) {
+            const bullet = bullets[j];
+            if (bullet[0] === -1) continue; // Skip destroyed bullets
+            
+            const bulletLeft = bullet[0] - B_R;
+            const bulletRight = bullet[0] + B_R;
+            const bulletTop = bullet[1] - B_R;
+            const bulletBottom = bullet[1] + B_R;
+            
+            if (bulletRight > objLeft && bulletLeft < objRight && 
+                bulletBottom > objTop && bulletTop < objBottom) {
+                // Destroy both bullet and object
+                bullet[0] = -1;
+                bullet[1] = -1;
+                spawnedObjects.splice(i, 1);
+                break;
+            }
+        }
+    }
+    
+    // Clean up destroyed bullets
+    bullets = bullets.filter(b => b[0] !== -1);
+}
+
+function collect_object(obj) {
+    switch (obj.type) {
+        case 'health_pack':
+            playerHealth = Math.min(MAX_HEALTH, playerHealth + 1);
+            break;
+            
+        case 'rapid_fire':
+            playerPowerUps.rapidFire = true;
+            playerPowerUps.rapidFireEndTime = Date.now() + obj.duration;
+            currentWeapon = 'rapid_fire';
+            shootCooldown = SHOOT_TIMEOUT / 3; // 3x faster shooting
+            break;
+            
+        case 'shotgun':
+            playerPowerUps.shotgun = true;
+            playerPowerUps.shotgunEndTime = Date.now() + obj.duration;
+            currentWeapon = 'shotgun';
+            break;
+            
+        case 'instant_kill':
+            // Kill all enemies on screen
+            killed += enemies.length;
+            enemies = []
+            break;
+    }
+}
+
 function restart_game() {
     // Reset all game state
     playerHealth = MAX_HEALTH;
@@ -355,9 +567,23 @@ function restart_game() {
     y = window.innerHeight / 2;
     lastShotTime = 0;
     
-    // // Restart enemy spawning
-    // setTimeout(addEnemies, SPAWN_TIMEOUT);
-    // setTimeout(increaseSpawnDensity, SPAWN_DENSITY_INCREASE_TIMEOUT);
+    // Reset power-ups and weapons
+    playerPowerUps = {
+        rapidFire: false,
+        shotgun: false,
+        rapidFireEndTime: 0,
+        shotgunEndTime: 0
+    };
+    currentWeapon = 'normal';
+    shootCooldown = SHOOT_TIMEOUT;
+    
+    // Clear spawned objects
+    spawnedObjects = [];
+    
+    // Reset spawn timers
+    for (const typeConfig of Object.values(SPAWNABLE_TYPES)) {
+        typeConfig.lastSpawn = 0;
+    }
     
     // Restart the game loop
     window.requestAnimationFrame(loop);
@@ -374,7 +600,6 @@ function update_text() {
         const apk = ammo !== 0 ? Math.floor(killed * 1000 / ammo) / 1000 : 0
         ctx.fillText('kills per bullet: ' + apk, 20, 40);
     }
-
     // once every spawn_timeout we check if random number<max_temp is > temp and spawn if it is so. 
     // so per minute we spawn 60/spawn_timeout * temp/max_temp
 
@@ -386,7 +611,27 @@ function update_text() {
     if (gameover) {
         ctx.fillStyle = 'red';
         ctx.fillText('gameover', 20, 60);
+        // don't print powerups
+        return 
     }
+
+
+    // Display power-up status
+    let powerUpY = 60;
+    if (playerPowerUps.rapidFire) {
+        const timeLeft = Math.ceil((playerPowerUps.rapidFireEndTime - Date.now()) / 1000);
+        ctx.fillStyle = SPAWNABLE_TYPES.RAPID_FIRE.color;
+        ctx.fillText('rapid fire: ' + timeLeft + 's', 20, powerUpY);
+        powerUpY += 25;
+    }
+    if (playerPowerUps.shotgun) {
+        const timeLeft = Math.ceil((playerPowerUps.shotgunEndTime - Date.now()) / 1000);
+        ctx.fillStyle = SPAWNABLE_TYPES.SHOTGUN.color;
+        ctx.fillText('shotgun: ' + timeLeft + 's', 20, powerUpY);
+        powerUpY += 25;
+    }
+
+
 }
 
 function print_initial_text() {
@@ -413,12 +658,15 @@ function loop() {
     // Update bullets and enemies
     kill_enemies()
     update_invincibility()
+    check_object_collisions()
+    update_power_ups() // Update power-ups
 
     draw_bullets()
     draw_enemies()
     draw_hearts()
     draw_screen_flash()
     draw_restart_button()
+    draw_spawned_objects()
 
     update_text()
 
@@ -445,6 +693,9 @@ function keyup(event) {
 
 setTimeout(addEnemies, SPAWN_TIMEOUT)
 setTimeout(increaseSpawnDensity, SPAWN_DENSITY_INCREASE_TIMEOUT)
+
+// Initialize spawning system
+setTimeout(spawn_objects, 1000)
 
 window.addEventListener('keydown', keydown)
 window.addEventListener('keyup', keyup)
