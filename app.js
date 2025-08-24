@@ -41,7 +41,7 @@ let y = window.innerHeight / 2
 let lastShotTime = 0
 
 let killed = 0
-let ammo = 1
+let ammo = 0
 let gameover = false
 let intro = true
 let startTime = Date.now()
@@ -106,6 +106,9 @@ function updateBullets() {
     const speed_x = (keyPresses.fire_right - keyPresses.fire_left) * BULLET_SPEED
     const speed_y = (keyPresses.fire_down - keyPresses.fire_up) * BULLET_SPEED
 
+
+    // This results it bullets that don't fly but stay in place if you press left and right
+    // But it is kinda fun to play with, so i'm not fixing it.
     if (
         (keyPresses.fire_up || keyPresses.fire_down || keyPresses.fire_left || keyPresses.fire_right) &&
         lastShotTime + SHOOT_TIMEOUT < Date.now()
