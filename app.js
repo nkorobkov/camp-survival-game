@@ -17,7 +17,7 @@ const SHOOT_TIMEOUT = 50
 const SPAWN_DENSITY_INCREASE_TIMEOUT = 5000
 
 // Health system constants
-const MAX_HEALTH = 5
+const MAX_HEALTH = 1
 const INVINCIBILITY_DURATION = 1000 // 1 second of invincibility after taking damage
 const SCREEN_FLASH_DURATION = 200 // 200ms red flash
 
@@ -256,6 +256,28 @@ function draw_screen_flash() {
     }
 }
 
+function draw_restart_button() {
+    if (!gameover) return;
+    
+    const againX = 20
+    const againY = 80
+
+    // Draw button text as a link
+    ctx.fillStyle = 'black';
+    ctx.font = '20px Verdana';
+    ctx.textAlign = "start";
+    ctx.textBaseline = "top";
+    ctx.fillText('again' ,againX, againY);
+    
+    // Draw underline
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(againX, againY + 20);
+    ctx.lineTo(againX + 55, againY + 20);
+    ctx.stroke();
+}
+
 function take_damage() {
     if (isInvincible) return;
     
@@ -315,6 +337,32 @@ function update_invincibility() {
     }
 }
 
+function restart_game() {
+    // Reset all game state
+    playerHealth = MAX_HEALTH;
+    lastDamageTime = 0;
+    screenFlashStart = 0;
+    isInvincible = false;
+    killed = 0;
+    ammo = 0;
+    gameover = false;
+    intro = true;
+    startTime = Date.now();
+    temperature = 10;
+    enemies = [];
+    bullets = [];
+    x = window.innerWidth / 2;
+    y = window.innerHeight / 2;
+    lastShotTime = 0;
+    
+    // // Restart enemy spawning
+    // setTimeout(addEnemies, SPAWN_TIMEOUT);
+    // setTimeout(increaseSpawnDensity, SPAWN_DENSITY_INCREASE_TIMEOUT);
+    
+    // Restart the game loop
+    window.requestAnimationFrame(loop);
+}
+
 function update_text() {
     ctx.fillStyle = 'black';
     ctx.font = '20px Verdana';
@@ -370,6 +418,7 @@ function loop() {
     draw_enemies()
     draw_hearts()
     draw_screen_flash()
+    draw_restart_button()
 
     update_text()
 
@@ -402,5 +451,21 @@ window.addEventListener('keyup', keyup)
 
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('load', resizeCanvas);
+
+// Add click event for restart button
+window.addEventListener('click', function(event) {
+    if (gameover) {
+        const rect = canvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+        
+        // Check if click is within button bounds
+        if (clickX >= 20 && clickX <= 20 + 60 &&
+            clickY >= 80 && clickY <= 80 + 25) {
+            restart_game();
+        }
+    }
+});
+
 window.requestAnimationFrame(loop)
 
