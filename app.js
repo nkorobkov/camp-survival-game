@@ -16,6 +16,11 @@ const MAX_TEMPERATURE = 100
 const SHOOT_TIMEOUT = 50
 const SPAWN_DENSITY_INCREASE_TIMEOUT = 5000
 
+// Health system constants
+const MAX_HEALTH = 5
+const INVINCIBILITY_DURATION = 1000 // 1 second of invincibility after taking damage
+const SCREEN_FLASH_DURATION = 200 // 200ms red flash
+
 
 function resizeCanvas() {
     const devicePixelRatioScale = window.devicePixelRatio || 1;
@@ -43,6 +48,12 @@ let ammo = 0
 let gameover = false
 let intro = true
 let startTime = Date.now()
+
+// Health system variables
+let playerHealth = MAX_HEALTH
+let lastDamageTime = 0
+let screenFlashStart = 0
+let isInvincible = false
 
 temperature = 10
 enemies = []
@@ -72,7 +83,17 @@ let controlls = {
 }
 
 function draw_player(x, y) {
-    ctx.fillStyle = 'teal';
+    if (isInvincible) {
+        // Blinking effect when invincible
+        const timeSinceDamage = Date.now() - lastDamageTime;
+        if (Math.floor(timeSinceDamage / 100) % 2 === 0) {
+            ctx.fillStyle = 'rgba(0, 128, 128, 0.5)'; // Semi-transparent teal
+        } else {
+            ctx.fillStyle = 'rgba(0, 128, 128, 0.8)'; // More opaque teal
+        }
+    } else {
+        ctx.fillStyle = 'teal';
+    }
     ctx.fillRect(x, y, P_X, P_Y);
 }
 
@@ -187,6 +208,67 @@ function draw_bullets() {
     }
 }
 
+function draw_hearts() {
+    const heartSpacing = 25;
+    const totalWidth = MAX_HEALTH * heartSpacing;
+    const startX = (window.innerWidth - totalWidth) / 2;
+    const startY = 20;
+    
+    for (let i = 0; i < playerHealth; i++) {
+        const heartX = startX + (i * heartSpacing);
+        const heartY = startY;
+        
+        // Draw pixelated heart using small squares
+        ctx.fillStyle = '#eb4034';
+        
+        // Heart pattern using 5x5 grid
+        const heartPattern = [
+            [0,1,1,0,1,1,0],
+            [1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1],
+            [0,1,1,1,1,1,0],
+            [0,0,1,1,1,0,0],
+            [0,0,0,1,0,0,0]
+        ];
+        
+        const pixelSize = 3;
+        
+        for (let row = 0; row < heartPattern.length; row++) {
+            for (let col = 0; col < heartPattern[row].length; col++) {
+                if (heartPattern[row][col] === 1) {
+                    ctx.fillRect(
+                        heartX + (col * pixelSize), 
+                        heartY + (row * pixelSize), 
+                        pixelSize, 
+                        pixelSize
+                    );
+                }
+            }
+        }
+    }
+}
+
+function draw_screen_flash() {
+    if (screenFlashStart > 0 && Date.now() - screenFlashStart < SCREEN_FLASH_DURATION && !gameover) {
+        ctx.fillStyle = 'rgba(235, 64, 52, 0.3)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+}
+
+function take_damage() {
+    if (isInvincible) return;
+    
+    playerHealth--;
+    lastDamageTime = Date.now();
+    screenFlashStart = Date.now();
+    isInvincible = true;
+    
+    if (playerHealth <= 0) {
+        gameover = true;
+    }
+}
+
 function kill_enemies() {
     for (let e of enemies) {
         const ex = e[0]
@@ -220,13 +302,18 @@ function kill_enemies() {
         const vertical = ey - P_Y < y && y < ey + E_Y
         const horizontal = ex - P_X < x && x < ex + E_X
         if (vertical && horizontal) {
-            gameover = true
+            take_damage()
         }
     }
     bullets = bullets.filter(b => (b[0] !== -1 || b[1] !== -1) && b[0] < window.innerWidth && b[0] > 0 && b[1] < window.innerHeight && b[1] > 0)
     enemies = enemies.filter(b => b[0] !== -1 || b[1] !== -1)
 }
 
+function update_invincibility() {
+    if (isInvincible && Date.now() - lastDamageTime > INVINCIBILITY_DURATION) {
+        isInvincible = false;
+    }
+}
 
 function update_text() {
     ctx.fillStyle = 'black';
@@ -277,10 +364,12 @@ function loop() {
 
     // Update bullets and enemies
     kill_enemies()
+    update_invincibility()
 
     draw_bullets()
     draw_enemies()
-
+    draw_hearts()
+    draw_screen_flash()
 
     update_text()
 
