@@ -8,13 +8,15 @@ const E_X = 20
 const E_Y = 20
 
 const B_R = 3
-const SPEED = 5
+const SPEED = 4.3
 const BULLET_SPEED = 10
-const ENEMY_SPEED = 4
+const ENEMY_SPEED = SPEED * 0.8
 const SPAWN_TIMEOUT = 100
 const MAX_TEMPERATURE = 100
 const SHOOT_TIMEOUT = 50
 const SPAWN_DENSITY_INCREASE_TIMEOUT = 10000
+const TARGET_FPS = 60 // Target frames per second
+const FRAME_TIME = 1000 / TARGET_FPS // Target time per frame in milliseconds
 
 // Spawnable objects system
 const SPAWNABLE_TYPES = {
@@ -137,6 +139,7 @@ let x = window.innerWidth / 2
 let y = window.innerHeight / 2
 
 let lastShotTime = 0
+let lastFrameTime = Date.now()
 
 let killed = 0
 let ammo = 0
@@ -206,18 +209,20 @@ function draw_player(x, y) {
     ctx.fillRect(x, y, P_X, P_Y);
 }
 
-function updatePlayerPosition() {
+function updatePlayerPosition(deltaTime) {
+    const frameSpeed = SPEED * deltaTime * 60; // Normalize to 60 FPS
+    
     if (keyPresses.up) {
-        y -= SPEED
+        y -= frameSpeed
     }
     if (keyPresses.down) {
-        y += SPEED
+        y += frameSpeed
     }
     if (keyPresses.left) {
-        x -= SPEED
+        x -= frameSpeed
     }
     if (keyPresses.right) {
-        x += SPEED
+        x += frameSpeed
     }
 
     // console.log(x, y, canvas.width, canvas.height, window.innerHeight)
@@ -304,7 +309,9 @@ function increaseSpawnDensity() {
 
 }
 
-function moveEnemies() {
+function moveEnemies(deltaTime) {
+    const frameSpeed = deltaTime * 60; // Normalize to 60 FPS
+    
     for (let e of enemies) {
         let dx = (x - e[0])
         let dy = (y - e[1])
@@ -315,18 +322,20 @@ function moveEnemies() {
             currentEnemySpeed = ENEMY_SPEED * 0.5; // 50% slower
         }
 
-        e[0] = e[0] + dx * currentEnemySpeed / (Math.abs(dx) + Math.abs(dy))
-        e[1] = e[1] + dy * currentEnemySpeed / (Math.abs(dx) + Math.abs(dy))
+        e[0] = e[0] + dx * currentEnemySpeed * frameSpeed / (Math.abs(dx) + Math.abs(dy))
+        e[1] = e[1] + dy * currentEnemySpeed * frameSpeed / (Math.abs(dx) + Math.abs(dy))
     }
 }
 
-function moveBullets() {
+function moveBullets(deltaTime) {
+    const frameSpeed = deltaTime * 60; // Normalize to 60 FPS
+    
     for (let b of bullets) {
         const speed_x = b[2]
         const speed_y = b[3]
 
-        b[0] = b[0] + speed_x
-        b[1] = b[1] + speed_y
+        b[0] = b[0] + speed_x * frameSpeed
+        b[1] = b[1] + speed_y * frameSpeed
     }
 }
 
@@ -831,6 +840,7 @@ function restart_game() {
     x = window.innerWidth / 2;
     y = window.innerHeight / 2;
     lastShotTime = 0;
+    lastFrameTime = Date.now();
     
     // Reset power-ups and weapons
     playerPowerUps = {
@@ -998,13 +1008,27 @@ function print_initial_text() {
 }
 
 function loop() {
+    const currentTime = Date.now();
+    const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
+    lastFrameTime = currentTime;
+    
+    // Cap delta time to prevent huge jumps if tab becomes inactive
+    const clampedDeltaTime = Math.min(deltaTime, 1/30); // Max 30 FPS equivalent
+    
+    // Frame rate limiting (optional - uncomment to enable)
+    // const elapsed = currentTime - lastFrameTime;
+    // if (elapsed < FRAME_TIME) {
+    //     setTimeout(() => window.requestAnimationFrame(loop), FRAME_TIME - elapsed);
+    //     return;
+    // }
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     print_initial_text()
-    updatePlayerPosition()
+    updatePlayerPosition(clampedDeltaTime)
     updateBullets()
-    moveEnemies()
-    moveBullets()
+    moveEnemies(clampedDeltaTime)
+    moveBullets(clampedDeltaTime)
     draw_player(x, y)
 
     // Update bullets and enemies
