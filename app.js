@@ -23,6 +23,7 @@ const SPAWNABLE_TYPES = {
         name: 'Health Pack',
         color: '#DA3232',
         size: 15,
+        shape: 'square',
         spawnChance: 0.3, // 30% chance when spawning
         spawnInterval: 8000, // Spawn every 8 seconds
         lastSpawn: 0,
@@ -33,6 +34,7 @@ const SPAWNABLE_TYPES = {
         name: 'rapid fire',
         color: '#CD3BCD',
         size: 15,
+        shape: 'square',
         spawnChance: 0.2, // 20% chance when spawning
         spawnInterval: 12000, // Spawn every 12 secondss
         lastSpawn: 0,
@@ -44,6 +46,7 @@ const SPAWNABLE_TYPES = {
         name: 'shotgun',
         color: '#57BA50',
         size: 15,
+        shape: 'square',
         spawnChance: 0.15, // 15% chance when spawning
         spawnInterval: 15000, // Spawn every 15 seconds
         lastSpawn: 0,
@@ -55,10 +58,23 @@ const SPAWNABLE_TYPES = {
         name: 'Bomb',
         color: "#313939",
         size: 15,
+        shape: 'circle',
         spawnChance: 0.1, // 10% chance when spawning
         spawnInterval: 20000, // Spawn every 20 seconds
         lastSpawn: 0,
         maxOnField: 1
+    },
+    SLOW_ENEMIES: {
+        id: 'slow_enemies',
+        name: 'slow',
+        color: '#4169E1', // Royal blue
+        size: 15,
+        shape: 'circle',
+        spawnChance: 0.25, // 25% chance when spawning
+        spawnInterval: 15000, // Spawn every 15 seconds
+        lastSpawn: 0,
+        maxOnField: 1,
+        duration: 5000 // 5 seconds duration
     }
 }
 
@@ -106,8 +122,10 @@ let spawnedObjects = []
 let playerPowerUps = {
     rapidFire: false,
     shotgun: false,
+    slowEnemies: false,
     rapidFireEndTime: 0,
-    shotgunEndTime: 0
+    shotgunEndTime: 0,
+    slowEnemiesEndTime: 0
 }
 
 // Weapon system
@@ -245,8 +263,14 @@ function moveEnemies() {
         let dx = (x - e[0])
         let dy = (y - e[1])
 
-        e[0] = e[0] + dx * ENEMY_SPEED / (Math.abs(dx) + Math.abs(dy))
-        e[1] = e[1] + dy * ENEMY_SPEED / (Math.abs(dx) + Math.abs(dy))
+        // Apply slow effect if active
+        let currentEnemySpeed = ENEMY_SPEED;
+        if (playerPowerUps.slowEnemies) {
+            currentEnemySpeed = ENEMY_SPEED * 0.5; // 50% slower
+        }
+
+        e[0] = e[0] + dx * currentEnemySpeed / (Math.abs(dx) + Math.abs(dy))
+        e[1] = e[1] + dy * currentEnemySpeed / (Math.abs(dx) + Math.abs(dy))
     }
 }
 
@@ -351,12 +375,56 @@ function draw_spawned_objects() {
         if (obj.collected) continue;
         
         ctx.fillStyle = obj.color;
-        ctx.fillRect(obj.x, obj.y, obj.size, obj.size);
         
-        // Add a subtle glow effect
+        // Draw different shapes based on the shape property
+        switch (obj.shape) {
+            case 'circle':
+                ctx.beginPath();
+                ctx.arc(obj.x + obj.size/2, obj.y + obj.size/2, obj.size/2, 0, 2 * Math.PI);
+                ctx.fill();
+                break;
+                
+            case 'triangle':
+                ctx.beginPath();
+                ctx.moveTo(obj.x + obj.size/2, obj.y); // Top point
+                ctx.lineTo(obj.x, obj.y + obj.size); // Bottom left
+                ctx.lineTo(obj.x + obj.size, obj.y + obj.size); // Bottom right
+                ctx.closePath();
+                ctx.fill();
+                break;
+                
+            case 'square':
+            default:
+                ctx.fillRect(obj.x, obj.y, obj.size, obj.size);
+                break;
+        }
+        
+        // Add a subtle glow effect based on shape
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
-        ctx.strokeRect(obj.x - 1, obj.y - 1, obj.size + 2, obj.size + 2);
+        
+        switch (obj.shape) {
+            case 'circle':
+                console.log('circle')
+                ctx.beginPath();
+                ctx.arc(obj.x + obj.size/2, obj.y + obj.size/2, obj.size/2 + 1, 0, 2 * Math.PI);
+                ctx.stroke();
+                break;
+                
+            case 'triangle':
+                ctx.beginPath();
+                ctx.moveTo(obj.x + obj.size/2, obj.y - 1); // Top point
+                ctx.lineTo(obj.x - 1, obj.y + obj.size + 1); // Bottom left
+                ctx.lineTo(obj.x + obj.size + 1, obj.y + obj.size + 1); // Bottom right
+                ctx.closePath();
+                ctx.stroke();
+                break;
+                
+            case 'square':
+            default:
+                ctx.strokeRect(obj.x - 1, obj.y - 1, obj.size + 2, obj.size + 2);
+                break;
+        }
     }
 }
 
@@ -452,6 +520,7 @@ function create_spawnable_object(typeConfig) {
         name: typeConfig.name,
         color: typeConfig.color,
         size: typeConfig.size,
+        shape: typeConfig.shape,
         x: x,
         y: y,
         duration: typeConfig.duration || 0,
@@ -472,6 +541,10 @@ function update_power_ups() {
     if (playerPowerUps.shotgun && currentTime > playerPowerUps.shotgunEndTime) {
         playerPowerUps.shotgun = false;
         currentWeapon = 'normal';
+    }
+    
+    if (playerPowerUps.slowEnemies && currentTime > playerPowerUps.slowEnemiesEndTime) {
+        playerPowerUps.slowEnemies = false;
     }
 }
 
@@ -546,6 +619,11 @@ function collect_object(obj) {
             killed += enemies.length;
             enemies = []
             break;
+            
+        case 'slow_enemies':
+            playerPowerUps.slowEnemies = true;
+            playerPowerUps.slowEnemiesEndTime = Date.now() + obj.duration;
+            break;
     }
 }
 
@@ -571,8 +649,10 @@ function restart_game() {
     playerPowerUps = {
         rapidFire: false,
         shotgun: false,
+        slowEnemies: false,
         rapidFireEndTime: 0,
-        shotgunEndTime: 0
+        shotgunEndTime: 0,
+        slowEnemiesEndTime: 0
     };
     currentWeapon = 'normal';
     shootCooldown = SHOOT_TIMEOUT;
@@ -630,6 +710,12 @@ function update_text() {
         ctx.fillText('shotgun: ' + timeLeft + 's', 20, powerUpY);
         powerUpY += 25;
     }
+    if (playerPowerUps.slowEnemies) {
+        const timeLeft = Math.ceil((playerPowerUps.slowEnemiesEndTime - Date.now()) / 1000);
+        ctx.fillStyle = SPAWNABLE_TYPES.SLOW_ENEMIES.color;
+        ctx.fillText('slow: ' + timeLeft + 's', 20, powerUpY);
+        powerUpY += 25;
+    }
 
 
 }
@@ -679,6 +765,7 @@ function loop() {
 
 function debug() {
     //console.log(bullets.length)
+    //console.log(spawnedObjects)
 }
 
 function keydown(event) {
