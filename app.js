@@ -14,13 +14,13 @@ const ENEMY_SPEED = 4
 const SPAWN_TIMEOUT = 100
 const MAX_TEMPERATURE = 100
 const SHOOT_TIMEOUT = 50
-const SPAWN_DENSITY_INCREASE_TIMEOUT = 5000
+const SPAWN_DENSITY_INCREASE_TIMEOUT = 10000
 
 // Spawnable objects system
 const SPAWNABLE_TYPES = {
     HEALTH_PACK: {
         id: 'health_pack',
-        name: 'Health Pack',
+        name: 'health',
         color: '#DA3232',
         size: 15,
         shape: 'square',
@@ -55,7 +55,7 @@ const SPAWNABLE_TYPES = {
     },
     INSTANT_KILL: {
         id: 'instant_kill',
-        name: 'Bomb',
+        name: 'bomb',
         color: "#313939",
         size: 15,
         shape: 'circle',
@@ -75,6 +75,17 @@ const SPAWNABLE_TYPES = {
         lastSpawn: 0,
         maxOnField: 1,
         duration: 5000 // 5 seconds duration
+    },
+    PERMANENT_BUFF: {
+        id: 'permanent_buff',
+        name: 'Permanent Buff',
+        color: '#FFD700', // Yellow
+        size: 18,
+        shape: 'triangle',
+        spawnChance: 0.1, 
+        spawnInterval: 6000, 
+        lastSpawn: 0,
+        maxOnField: 1
     }
 }
 
@@ -82,6 +93,28 @@ const SPAWNABLE_TYPES = {
 const MAX_HEALTH = 5
 const INVINCIBILITY_DURATION = 1000 // 1 second of invincibility after taking damage
 const SCREEN_FLASH_DURATION = 200 // 200ms red flash
+
+// Permanent buff system
+let permanentBuffs = {
+    shootingSpeed: 1, // Multiplier for shooting speed
+    bulletSpread: 1, // Number of bullets with spread
+        maxUpgradesOnField: {
+        // Map of spawnable type ids to zeros
+        // This will be used for tracking or initializing counts per type if needed
+        ...Object.fromEntries(Object.keys(SPAWNABLE_TYPES).map(key => [SPAWNABLE_TYPES[key].id, 0])),
+    }, // Multiplier for maxOnField
+    upgradeSpawnInterval: {
+        // Map of spawnable type ids to zeros
+        ...Object.fromEntries(Object.keys(SPAWNABLE_TYPES).map(key => [SPAWNABLE_TYPES[key].id, 0])),
+    }, // Seconds reduced from spawn intervals
+    maxHealth: MAX_HEALTH, // Maximum health
+    collectRadius: (P_X + P_Y) / 2
+}
+
+// Buff message system
+let buffMessage = '';
+let buffMessageStartTime = 0;
+const BUFF_MESSAGE_DURATION = 3000; // 3 seconds
 
 
 function resizeCanvas() {
@@ -205,22 +238,33 @@ function updateBullets() {
         (keyPresses.fire_up || keyPresses.fire_down || keyPresses.fire_left || keyPresses.fire_right) &&
         lastShotTime + shootCooldown < Date.now()
     ) {
-
+        let bulletCount = permanentBuffs.bulletSpread;
         // Determine weapon behavior based on active power-ups
         if (playerPowerUps.shotgun) {
-            // Shotgun fires 3 bullets in a spread
-            const spread = 0.3;
-            for (let i = -1; i <= 1; i++) {
-                const spreadSpeedX = speed_x + (i * spread * BULLET_SPEED);
-                const spreadSpeedY = speed_y + (i * spread * BULLET_SPEED);
-                bullets.push([bx, by, spreadSpeedX, spreadSpeedY]);
-            }
-            ammo = ammo + 3; // Count all 3 bullets
-        } else {
-            // Normal or rapid fire - single bullet
-            bullets.push([bx, by, speed_x, speed_y]);
-            ammo = ammo + 1;
+            // Shotgun fires bullets based on permanent buff
+            bulletCount = bulletCount + 2;
         }
+        
+        // If no bullets to fire, don't proceed
+        if (bulletCount <= 0) return;
+        
+        // Calculate the angle of the shot direction
+        let angle = Math.atan2(speed_y, speed_x);
+        // If no direction, default to right
+        if (speed_x === 0 && speed_y === 0) {
+            angle = 0;
+        }
+        const angleSpread = 10 * Math.PI / 180; // 10 degrees in radians
+        const center = (bulletCount - 1) / 2;
+        for (let i = 0; i < bulletCount; i++) {
+            // Center bullet is at angle, others are offset by angleSpread
+            const offset = (i - center) * angleSpread;
+            const bulletAngle = angle + offset;
+            const spreadSpeedX = Math.cos(bulletAngle) * BULLET_SPEED;
+            const spreadSpeedY = Math.sin(bulletAngle) * BULLET_SPEED;
+            bullets.push([bx, by, spreadSpeedX, spreadSpeedY]);
+        }
+        ammo = ammo + bulletCount; // Count all bullets
         
         lastShotTime = Date.now();
         intro = false;
@@ -304,10 +348,11 @@ function draw_bullets() {
 
 function draw_hearts() {
     const heartSpacing = 25;
-    const totalWidth = MAX_HEALTH * heartSpacing;
+    const totalWidth = permanentBuffs.maxHealth * heartSpacing;
     const startX = (window.innerWidth - totalWidth) / 2;
     const startY = 20;
     
+    // Draw current health hearts
     for (let i = 0; i < playerHealth; i++) {
         const heartX = startX + (i * heartSpacing);
         const heartY = startY;
@@ -372,6 +417,38 @@ function draw_restart_button() {
     ctx.stroke();
 }
 
+function draw_buff_message() {
+    if (buffMessage && Date.now() - buffMessageStartTime < BUFF_MESSAGE_DURATION) {
+        ctx.fillStyle = '#00FF00'; // Green text
+        ctx.font = '20px Verdana';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        
+        // Position message below hearts
+        const messageY = 60;
+        ctx.fillText(buffMessage, window.innerWidth / 2, messageY);
+    }
+}
+
+function draw_collection_radius() {
+    if (permanentBuffs.collectRadius > (P_X + P_Y) / 2) {
+        // Draw collection radius as a subtle circle around the player
+        ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)'; // Semi-transparent green
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]); // Dashed line
+        
+        const centerX = x + P_X / 2;
+        const centerY = y + P_Y / 2;
+        
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, permanentBuffs.collectRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+        
+        // Reset line dash
+        ctx.setLineDash([]);
+    }
+}
+
 function draw_spawned_objects() {
     for (const obj of spawnedObjects) {
         if (obj.collected) continue;
@@ -387,14 +464,19 @@ function draw_spawned_objects() {
                 break;
                 
             case 'triangle':
+                // Draw an equilateral triangle centered at (obj.x + obj.size/2, obj.y + obj.size/2)
+                // with side length = obj.size, pointing upwards
+                const side = obj.size;
+                const height = side * Math.sqrt(3) / 2;
+                const centerX = obj.x + side / 2;
+                const centerY = obj.y + side / 2;
                 ctx.beginPath();
-                ctx.moveTo(obj.x + obj.size/2, obj.y); // Top point
-                ctx.lineTo(obj.x, obj.y + obj.size); // Bottom left
-                ctx.lineTo(obj.x + obj.size, obj.y + obj.size); // Bottom right
+                ctx.moveTo(centerX, centerY - height / 2);
+                ctx.lineTo(centerX - side / 2, centerY + height / 2);
+                ctx.lineTo(centerX + side / 2, centerY + height / 2);
                 ctx.closePath();
                 ctx.fill();
                 break;
-                
             case 'square':
             default:
                 ctx.fillRect(obj.x, obj.y, obj.size, obj.size);
@@ -402,7 +484,11 @@ function draw_spawned_objects() {
         }
         
         // Add a subtle glow effect based on shape
-        ctx.strokeStyle = 'white';
+        if (obj.type === 'permanent_buff') {
+            ctx.strokeStyle = '#000000';
+        } else {
+            ctx.strokeStyle = 'white';
+        }
         ctx.lineWidth = 2;
         
         switch (obj.shape) {
@@ -414,10 +500,15 @@ function draw_spawned_objects() {
                 break;
                 
             case 'triangle':
+                // Draw an equilateral triangle border matching the fill
+                const sideGlow = obj.size + 2;
+                const heightGlow = sideGlow * Math.sqrt(3) / 2;
+                const centerXGlow = obj.x + obj.size / 2;
+                const centerYGlow = obj.y + obj.size / 2;
                 ctx.beginPath();
-                ctx.moveTo(obj.x + obj.size/2, obj.y - 1); // Top point
-                ctx.lineTo(obj.x - 1, obj.y + obj.size + 1); // Bottom left
-                ctx.lineTo(obj.x + obj.size + 1, obj.y + obj.size + 1); // Bottom right
+                ctx.moveTo(centerXGlow, centerYGlow - heightGlow / 2);
+                ctx.lineTo(centerXGlow - sideGlow / 2, centerYGlow + heightGlow / 2);
+                ctx.lineTo(centerXGlow + sideGlow / 2, centerYGlow + heightGlow / 2);
                 ctx.closePath();
                 ctx.stroke();
                 break;
@@ -493,17 +584,36 @@ function spawn_objects() {
     const currentTime = Date.now();
     
     for (const [typeKey, typeConfig] of Object.entries(SPAWNABLE_TYPES)) {
+        // Skip permanent buff for now as it has special handling
+        if (typeConfig.id === 'permanent_buff') continue;
+        
         // Check if enough time has passed and we can spawn this type
-        if (currentTime - typeConfig.lastSpawn >= typeConfig.spawnInterval) {
+        const secondsReduced = permanentBuffs.upgradeSpawnInterval[typeConfig.id] || 0;
+        const adjustedSpawnInterval = Math.max(1000, typeConfig.spawnInterval - (secondsReduced * 1000)); // Minimum 1 second
+        if (currentTime - typeConfig.lastSpawn >= adjustedSpawnInterval) {
             // Check if we haven't reached max count for this type
+            const adjustedMaxOnField = typeConfig.maxOnField + permanentBuffs.maxUpgradesOnField[typeConfig.id];
             const currentCount = spawnedObjects.filter(obj => obj.type === typeConfig.id).length;
-            if (currentCount < typeConfig.maxOnField) {
+            if (currentCount < adjustedMaxOnField) {
                 // Random chance to spawn
                 if (Math.random() < typeConfig.spawnChance) {
                     const obj = create_spawnable_object(typeConfig);
                     spawnedObjects.push(obj);
                     typeConfig.lastSpawn = currentTime;
                 }
+            }
+        }
+    }
+    
+    // Handle permanent buff spawning separately
+    const permanentBuffConfig = SPAWNABLE_TYPES.PERMANENT_BUFF;
+    if (currentTime - permanentBuffConfig.lastSpawn >= permanentBuffConfig.spawnInterval) {
+        const currentCount = spawnedObjects.filter(obj => obj.type === permanentBuffConfig.id).length;
+        if (currentCount < permanentBuffConfig.maxOnField) {
+            if (Math.random() < permanentBuffConfig.spawnChance) {
+                const obj = create_spawnable_object(permanentBuffConfig);
+                spawnedObjects.push(obj);
+                permanentBuffConfig.lastSpawn = currentTime;
             }
         }
     }
@@ -546,35 +656,42 @@ function update_power_ups() {
         playerPowerUps.slowEnemies = false;
     }
     
-    // Update shoot cooldown based on current active power-ups
+    // Update shoot cooldown based on current active power-ups and permanent buffs
     if (playerPowerUps.rapidFire) {
-        shootCooldown = SHOOT_TIMEOUT / 3; // 3x faster shooting
+        shootCooldown = (SHOOT_TIMEOUT / 3) / permanentBuffs.shootingSpeed; // 3x faster shooting + permanent buff
     } else {
-        shootCooldown = SHOOT_TIMEOUT; // Normal speed
+        shootCooldown = SHOOT_TIMEOUT / permanentBuffs.shootingSpeed; // Normal speed + permanent buff
     }
 }
 
 function check_object_collisions() {
     for (let i = spawnedObjects.length - 1; i >= 0; i--) {
         const obj = spawnedObjects[i];
-        const objLeft = obj.x;
-        const objRight = obj.x + obj.size;
-        const objTop = obj.y;
-        const objBottom = obj.y + obj.size;
-        const playerLeft = x;
-        const playerRight = x + P_X;
-        const playerTop = y;
-        const playerBottom = y + P_Y;
-        
-        // Check if player collected the object
-        if (!obj.collected) {   
-            if (playerRight > objLeft && playerLeft < objRight && 
-                playerBottom > objTop && playerTop < objBottom) {
+
+        // Calculate centers
+        const objCenterX = obj.x + obj.size / 2;
+        const objCenterY = obj.y + obj.size / 2;
+        const playerCenterX = x + P_X / 2;
+        const playerCenterY = y + P_Y / 2;
+
+        const collectRadius = permanentBuffs.collectRadius;
+
+        // Check if player collected the object based on distance
+        if (!obj.collected) {
+            const dx = objCenterX - playerCenterX;
+            const dy = objCenterY - playerCenterY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < collectRadius) {
                 collect_object(obj);
                 spawnedObjects.splice(i, 1);
                 continue;
             }
         }
+        
+        const objLeft = obj.x;
+        const objRight = obj.x + obj.size;
+        const objTop = obj.y;
+        const objBottom = obj.y + obj.size;
         
         // Check if bullet hit the object
         for (let j = bullets.length - 1; j >= 0; j--) {
@@ -604,7 +721,7 @@ function check_object_collisions() {
 function collect_object(obj) {
     switch (obj.type) {
         case 'health_pack':
-            playerHealth = Math.min(MAX_HEALTH, playerHealth + 1);
+            playerHealth = Math.min(permanentBuffs.maxHealth, playerHealth + 1);
             break;
             
         case 'rapid_fire':
@@ -627,7 +744,74 @@ function collect_object(obj) {
             playerPowerUps.slowEnemies = true;
             playerPowerUps.slowEnemiesEndTime = Date.now() + obj.duration;
             break;
+            
+        case 'permanent_buff':
+            apply_permanent_buff();
+            break;
     }
+}
+
+function apply_permanent_buff() {
+    const buffTypes = [
+        'shootingSpeed',
+        'bulletSpread', 
+        'maxUpgradesOnField',
+        'upgradeSpawnInterval',
+        'maxHealth',
+        'collectRadius',
+    ];
+    
+    const randomBuff = buffTypes[Math.floor(Math.random() * buffTypes.length)];
+    
+    switch (randomBuff) {
+        case 'shootingSpeed':
+            permanentBuffs.shootingSpeed += 0.2;
+            buffMessage = `shooting speed +20%! (${Math.round(permanentBuffs.shootingSpeed * 100)}%)`;
+            break;
+            
+        case 'bulletSpread':
+            permanentBuffs.bulletSpread += 1;
+            buffMessage = `bullet Spread +1! (${permanentBuffs.bulletSpread} bullets total)`;
+            break;
+            
+        case 'maxUpgradesOnField':
+            // Randomly select one upgrade type to get +1 max on field
+            const upgradeTypes = Object.keys(SPAWNABLE_TYPES).filter(key => 
+                SPAWNABLE_TYPES[key].id !== 'permanent_buff' // Exclude permanent buff from getting upgrades
+            );
+            const randomUpgradeType = upgradeTypes[Math.floor(Math.random() * upgradeTypes.length)];
+            const upgradeId = SPAWNABLE_TYPES[randomUpgradeType].id;
+            
+            permanentBuffs.maxUpgradesOnField[upgradeId] += 1;
+            buffMessage = `${SPAWNABLE_TYPES[randomUpgradeType].name} +1 on field!`;
+            break;
+            
+        case 'upgradeSpawnInterval':
+            // Randomly select one upgrade type to get -1 second spawn time
+            const spawnableTypes = Object.keys(SPAWNABLE_TYPES).filter(key => 
+                SPAWNABLE_TYPES[key].id !== 'permanent_buff' // Exclude permanent buff from getting upgrades
+            );
+            const randomSpawnableType = spawnableTypes[Math.floor(Math.random() * spawnableTypes.length)];
+            const spawnableId = SPAWNABLE_TYPES[randomSpawnableType].id;
+            
+            permanentBuffs.upgradeSpawnInterval[spawnableId] += 1;
+            const newSpawnTime = Math.max(1, (SPAWNABLE_TYPES[randomSpawnableType].spawnInterval / 1000) - permanentBuffs.upgradeSpawnInterval[spawnableId]);
+            buffMessage = `${SPAWNABLE_TYPES[randomSpawnableType].name} spawn time: ${newSpawnTime}s!`;
+            break;
+            
+        case 'maxHealth':
+            permanentBuffs.maxHealth += 1;
+            playerHealth = Math.min(permanentBuffs.maxHealth, playerHealth + 1);
+            buffMessage = `max health +1! (${permanentBuffs.maxHealth} HP)`;
+            break;
+            
+        case 'collectRadius':
+            permanentBuffs.collectRadius += (P_X + P_Y) / 4; // Increase by 50% of base radius
+            buffMessage = `collection radius +50%! (${Math.round(permanentBuffs.collectRadius)}px)`;
+            break;
+    }
+    
+    buffMessageStartTime = Date.now();
 }
 
 function restart_game() {
@@ -658,6 +842,26 @@ function restart_game() {
         slowEnemiesEndTime: 0
     };
     shootCooldown = SHOOT_TIMEOUT;
+    
+    // Reset permanent buffs
+    permanentBuffs = {
+        shootingSpeed: 1,
+        bulletSpread: 1,
+        maxUpgradesOnField: {
+            // Map of spawnable type ids to zeros
+            ...Object.fromEntries(Object.keys(SPAWNABLE_TYPES).map(key => [SPAWNABLE_TYPES[key].id, 0])),
+        },
+        upgradeSpawnInterval: {
+            // Map of spawnable type ids to zeros
+            ...Object.fromEntries(Object.keys(SPAWNABLE_TYPES).map(key => [SPAWNABLE_TYPES[key].id, 0])),
+        },
+        maxHealth: MAX_HEALTH,
+        collectRadius: (P_X + P_Y) / 2
+    };
+    
+    // Clear buff message
+    buffMessage = '';
+    buffMessageStartTime = 0;
     
     // Clear spawned objects
     spawnedObjects = [];
@@ -718,6 +922,66 @@ function update_text() {
         ctx.fillText('slow: ' + timeLeft + 's', 20, powerUpY);
         powerUpY += 25;
     }
+    
+    // Display permanent buff status
+    if (permanentBuffs.shootingSpeed > 1 || permanentBuffs.bulletSpread > 1 || 
+        Object.values(permanentBuffs.maxUpgradesOnField).some(count => count > 0) || 
+        Object.values(permanentBuffs.upgradeSpawnInterval).some(seconds => seconds > 0) || 
+        permanentBuffs.maxHealth > MAX_HEALTH || permanentBuffs.collectRadius > (P_X + P_Y) / 2) {
+        
+        ctx.fillStyle = '#EAC335'; // Gold color for permanent buffs
+        ctx.font = '16px Verdana';
+        ctx.textAlign = "start";
+        ctx.textBaseline = "top";
+        
+        if (permanentBuffs.shootingSpeed > 1) {
+            ctx.fillText(`shooting speed +${Math.round((permanentBuffs.shootingSpeed - 1) * 100)}%`, 20, powerUpY);
+            powerUpY += 20;
+        }
+        if (permanentBuffs.collectRadius > (P_X + P_Y) / 2) {
+            const baseRadius = (P_X + P_Y) / 2;
+            const increase = Math.round(((permanentBuffs.collectRadius - baseRadius) / baseRadius) * 100);
+            ctx.fillText(`collection radius +${increase}%`, 20, powerUpY);
+            powerUpY += 20;
+        }
+        if (permanentBuffs.bulletSpread > 1) {
+            ctx.fillText(`bullets per shot: ${permanentBuffs.bulletSpread}`, 20, powerUpY);
+            powerUpY += 20;
+        }
+        // Display combined spawnable object buffs for each type
+        const allSpawnableTypes = Object.keys(SPAWNABLE_TYPES).filter(key => 
+            SPAWNABLE_TYPES[key].id !== 'permanent_buff'
+        );
+        
+        const buffedSpawnableTypes = allSpawnableTypes.filter(typeKey => {
+            const typeId = SPAWNABLE_TYPES[typeKey].id;
+            return permanentBuffs.maxUpgradesOnField[typeId] > 0 || permanentBuffs.upgradeSpawnInterval[typeId] > 0;
+        });
+        
+        if (buffedSpawnableTypes.length > 0) {
+            buffedSpawnableTypes.forEach(typeKey => {
+                const typeId = SPAWNABLE_TYPES[typeKey].id;
+                const upgradeName = SPAWNABLE_TYPES[typeKey].name;
+                
+                // Calculate spawn time
+                const baseSpawnTime = SPAWNABLE_TYPES[typeKey].spawnInterval / 1000;
+                const secondsReduced = permanentBuffs.upgradeSpawnInterval[typeId] || 0;
+                const newSpawnTime = Math.max(1, baseSpawnTime - secondsReduced);
+                
+                // Calculate max on field
+                const baseMax = SPAWNABLE_TYPES[typeKey].maxOnField;
+                const maxIncrease = permanentBuffs.maxUpgradesOnField[typeId] || 0;
+                const newMax = baseMax + maxIncrease;
+                
+                ctx.fillText(`${upgradeName}: every ${newSpawnTime}s (${newMax} max)`, 20, powerUpY);
+                powerUpY += 20;
+            });
+        }
+        if (permanentBuffs.maxHealth > MAX_HEALTH) {
+            ctx.fillText(`max health +${permanentBuffs.maxHealth - MAX_HEALTH}`, 20, powerUpY);
+            powerUpY += 20;
+        }
+    }
 
 
 }
@@ -752,13 +1016,15 @@ function loop() {
     draw_bullets()
     draw_enemies()
     draw_hearts()
+    draw_buff_message()
+    //draw_collection_radius()
     draw_screen_flash()
     draw_restart_button()
     draw_spawned_objects()
 
     update_text()
 
-    debug()
+    //debug()
 
     if (!gameover) {
         window.requestAnimationFrame(loop)
@@ -768,6 +1034,15 @@ function loop() {
 function debug() {
     //console.log(bullets.length)
     //console.log(spawnedObjects)
+    
+    // Debug: Show collection radius
+    if (permanentBuffs.collectRadius > (P_X + P_Y) / 2) {
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+        ctx.font = '12px Verdana';
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillText(`Collection Radius: ${Math.round(permanentBuffs.collectRadius)}px`, 20, window.innerHeight - 40);
+    }
 }
 
 function keydown(event) {
