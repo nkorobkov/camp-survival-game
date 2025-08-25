@@ -129,7 +129,6 @@ let playerPowerUps = {
 }
 
 // Weapon system
-let currentWeapon = 'normal'
 let shootCooldown = SHOOT_TIMEOUT
 
 temperature = 10
@@ -206,7 +205,9 @@ function updateBullets() {
         (keyPresses.fire_up || keyPresses.fire_down || keyPresses.fire_left || keyPresses.fire_right) &&
         lastShotTime + shootCooldown < Date.now()
     ) {
-        if (currentWeapon === 'shotgun') {
+
+        // Determine weapon behavior based on active power-ups
+        if (playerPowerUps.shotgun) {
             // Shotgun fires 3 bullets in a spread
             const spread = 0.3;
             for (let i = -1; i <= 1; i++) {
@@ -214,13 +215,14 @@ function updateBullets() {
                 const spreadSpeedY = speed_y + (i * spread * BULLET_SPEED);
                 bullets.push([bx, by, spreadSpeedX, spreadSpeedY]);
             }
+            ammo = ammo + 3; // Count all 3 bullets
         } else {
             // Normal or rapid fire - single bullet
             bullets.push([bx, by, speed_x, speed_y]);
+            ammo = ammo + 1;
         }
         
         lastShotTime = Date.now();
-        ammo = ammo + 1;
         intro = false;
     }
 }
@@ -534,17 +536,21 @@ function update_power_ups() {
     // Check if power-ups have expired
     if (playerPowerUps.rapidFire && currentTime > playerPowerUps.rapidFireEndTime) {
         playerPowerUps.rapidFire = false;
-        currentWeapon = 'normal';
-        shootCooldown = SHOOT_TIMEOUT;
     }
     
     if (playerPowerUps.shotgun && currentTime > playerPowerUps.shotgunEndTime) {
         playerPowerUps.shotgun = false;
-        currentWeapon = 'normal';
     }
     
     if (playerPowerUps.slowEnemies && currentTime > playerPowerUps.slowEnemiesEndTime) {
         playerPowerUps.slowEnemies = false;
+    }
+    
+    // Update shoot cooldown based on current active power-ups
+    if (playerPowerUps.rapidFire) {
+        shootCooldown = SHOOT_TIMEOUT / 3; // 3x faster shooting
+    } else {
+        shootCooldown = SHOOT_TIMEOUT; // Normal speed
     }
 }
 
@@ -604,14 +610,11 @@ function collect_object(obj) {
         case 'rapid_fire':
             playerPowerUps.rapidFire = true;
             playerPowerUps.rapidFireEndTime = Date.now() + obj.duration;
-            currentWeapon = 'rapid_fire';
-            shootCooldown = SHOOT_TIMEOUT / 3; // 3x faster shooting
             break;
             
         case 'shotgun':
             playerPowerUps.shotgun = true;
             playerPowerUps.shotgunEndTime = Date.now() + obj.duration;
-            currentWeapon = 'shotgun';
             break;
             
         case 'instant_kill':
@@ -654,7 +657,6 @@ function restart_game() {
         shotgunEndTime: 0,
         slowEnemiesEndTime: 0
     };
-    currentWeapon = 'normal';
     shootCooldown = SHOOT_TIMEOUT;
     
     // Clear spawned objects
