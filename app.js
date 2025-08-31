@@ -141,6 +141,11 @@ let y = window.innerHeight / 2
 let lastShotTime = 0
 let lastFrameTime = Date.now()
 
+// Add timestamp variables for timer-based operations
+let nextEnemySpawnTime = Date.now() + SPAWN_TIMEOUT
+let nextSpawnDensityIncreaseTime = Date.now() + SPAWN_DENSITY_INCREASE_TIMEOUT
+let nextObjectSpawnTime = Date.now() + 1000
+
 let killed = 0
 let ammo = 0
 let gameover = false
@@ -280,6 +285,11 @@ function updateBullets() {
 
 // run every second
 function addEnemies() {
+    const currentTime = Date.now();
+    if (currentTime < nextEnemySpawnTime) {
+        return; // Not time to spawn yet
+    }
+    
     if (Math.random() * MAX_TEMPERATURE < temperature) {
         // Decide which edge: 0=top, 1=right, 2=bottom, 3=left
         const edge = Math.floor(Math.random() * 4);
@@ -299,14 +309,21 @@ function addEnemies() {
         }
         enemies.push([ex, ey]);
     }
-
-    setTimeout(addEnemies, SPAWN_TIMEOUT)
+    
+    // Schedule next spawn
+    nextEnemySpawnTime = currentTime + SPAWN_TIMEOUT;
 }
 
 function increaseSpawnDensity() {
-    temperature += 1
-    setTimeout(increaseSpawnDensity, SPAWN_DENSITY_INCREASE_TIMEOUT)
-
+    const currentTime = Date.now();
+    if (currentTime < nextSpawnDensityIncreaseTime) {
+        return; // Not time to increase yet
+    }
+    
+    temperature += 1;
+    
+    // Schedule next increase
+    nextSpawnDensityIncreaseTime = currentTime + SPAWN_DENSITY_INCREASE_TIMEOUT;
 }
 
 function moveEnemies(deltaTime) {
@@ -591,6 +608,9 @@ function update_invincibility() {
 
 function spawn_objects() {
     const currentTime = Date.now();
+    if (currentTime < nextObjectSpawnTime) {
+        return; // Not time to spawn yet
+    }
     
     for (const [typeKey, typeConfig] of Object.entries(SPAWNABLE_TYPES)) {
         // Skip permanent buff for now as it has special handling
@@ -627,7 +647,8 @@ function spawn_objects() {
         }
     }
     
-    setTimeout(spawn_objects, 1000); // Check every second
+    // Schedule next spawn check
+    nextObjectSpawnTime = currentTime + 1000;
 }
 
 function create_spawnable_object(typeConfig) {
@@ -842,6 +863,11 @@ function restart_game() {
     lastShotTime = 0;
     lastFrameTime = Date.now();
     
+    // Reset timestamp variables
+    nextEnemySpawnTime = Date.now() + SPAWN_TIMEOUT;
+    nextSpawnDensityIncreaseTime = Date.now() + SPAWN_DENSITY_INCREASE_TIMEOUT;
+    nextObjectSpawnTime = Date.now() + 1000;
+    
     // Reset power-ups and weapons
     playerPowerUps = {
         rapidFire: false,
@@ -1024,6 +1050,11 @@ function loop() {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Call timer-based functions (they handle their own timing internally)
+    addEnemies();
+    increaseSpawnDensity();
+    spawn_objects();
+
     print_initial_text()
     updatePlayerPosition(clampedDeltaTime)
     updateBullets()
@@ -1079,11 +1110,8 @@ function keyup(event) {
     keyPresses[dirrection] = false
 }
 
-setTimeout(addEnemies, SPAWN_TIMEOUT)
-setTimeout(increaseSpawnDensity, SPAWN_DENSITY_INCREASE_TIMEOUT)
-
 // Initialize spawning system
-setTimeout(spawn_objects, 1000)
+// Removed setTimeout - now handled in main loop
 
 window.addEventListener('keydown', keydown)
 window.addEventListener('keyup', keyup)
