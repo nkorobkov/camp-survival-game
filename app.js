@@ -899,7 +899,7 @@ function update_text() {
     // once every spawn_timeout we check if random number<max_temp is > temp and spawn if it is so. 
     // so per minute we spawn 60/spawn_timeout * temp/max_temp
 
-    const spawnPerMinute = Math.floor(60000 / SPAWN_TIMEOUT * temperature / MAX_TEMPERATURE)
+    const spawnPerMinute = Math.floor(60000 / SPAWN_TIMEOUT * Math.min(1, temperature / MAX_TEMPERATURE))
     ctx.fillText('time: ' + Math.floor((Date.now() - startTime)/1000) + 's', window.innerWidth - 250, 20);
     ctx.fillText('spawn per minute: ' + spawnPerMinute, window.innerWidth - 250, 40);
     
