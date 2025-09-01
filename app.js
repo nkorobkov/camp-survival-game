@@ -152,6 +152,11 @@ let gameover = false
 let intro = true
 let startTime = Date.now()
 
+// Pause system
+let isPaused = false
+let pauseStartTime = 0
+let totalPauseTime = 0
+
 // Health system variables
 let playerHealth = MAX_HEALTH
 let lastDamageTime = 0
@@ -197,6 +202,7 @@ let controlls = {
     ArrowDown: "fire_down",
     ArrowRight: "fire_right",
     ArrowLeft: "fire_left",
+    " ": "pause", // Space bar for pause
 }
 
 function draw_player(x, y) {
@@ -868,6 +874,11 @@ function restart_game() {
     nextSpawnDensityIncreaseTime = Date.now() + SPAWN_DENSITY_INCREASE_TIMEOUT;
     nextObjectSpawnTime = Date.now() + 1000;
     
+    // Reset pause system
+    isPaused = false;
+    pauseStartTime = 0;
+    totalPauseTime = 0;
+    
     // Reset power-ups and weapons
     playerPowerUps = {
         rapidFire: false,
@@ -1048,6 +1059,15 @@ function loop() {
     //     return;
     // }
     
+    // Check if game is paused
+    if (isPaused) {
+        // Don't clear screen or update game state, just continue the loop
+        if (!gameover) {
+            window.requestAnimationFrame(loop)
+        }
+        return;
+    }
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Call timer-based functions (they handle their own timing internally)
@@ -1076,6 +1096,7 @@ function loop() {
     draw_screen_flash()
     draw_restart_button()
     draw_spawned_objects()
+    draw_pause_overlay()
 
     update_text()
 
@@ -1083,6 +1104,25 @@ function loop() {
 
     if (!gameover) {
         window.requestAnimationFrame(loop)
+    }
+}
+
+function draw_pause_overlay() {
+    if (isPaused && !gameover) {
+        // Draw semi-transparent overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw pause text
+        ctx.fillStyle = 'white';
+        ctx.font = '48px Verdana';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText('PAUSED', window.innerWidth / 2, window.innerHeight / 2 - 30);
+        
+        // Draw instruction text
+        ctx.font = '24px Verdana';
+        ctx.fillText('Press SPACE to resume', window.innerWidth / 2, window.innerHeight / 2 + 30);
     }
 }
 
@@ -1102,6 +1142,53 @@ function debug() {
 
 function keydown(event) {
     let dirrection = controlls[event.key]
+    
+    if (dirrection === "pause") {
+        // Handle pause toggle
+        if (!gameover) {
+            if (isPaused) {
+                // Unpause
+                isPaused = false;
+                const pauseDuration = Date.now() - pauseStartTime;
+                totalPauseTime += pauseDuration;
+                
+                // Adjust all time-based variables to account for pause
+                nextEnemySpawnTime += pauseDuration;
+                nextSpawnDensityIncreaseTime += pauseDuration;
+                nextObjectSpawnTime += pauseDuration;
+                lastShotTime += pauseDuration;
+                startTime += pauseDuration;
+                lastDamageTime += pauseDuration;
+                screenFlashStart += pauseDuration;
+                buffMessageStartTime += pauseDuration;
+                
+                // Adjust power-up end times
+                if (playerPowerUps.rapidFireEndTime > 0) {
+                    playerPowerUps.rapidFireEndTime += pauseDuration;
+                }
+                if (playerPowerUps.shotgunEndTime > 0) {
+                    playerPowerUps.shotgunEndTime += pauseDuration;
+                }
+                if (playerPowerUps.slowEnemiesEndTime > 0) {
+                    playerPowerUps.slowEnemiesEndTime += pauseDuration;
+                }
+                
+                // Adjust spawnable object last spawn times
+                for (const typeConfig of Object.values(SPAWNABLE_TYPES)) {
+                    if (typeConfig.lastSpawn > 0) {
+                        typeConfig.lastSpawn += pauseDuration;
+                    }
+                }
+            } else {
+                // Pause
+                isPaused = true;
+                pauseStartTime = Date.now();
+                draw_pause_overlay()
+            }
+        }
+        return;
+    }
+    
     keyPresses[dirrection] = true
 }
 
